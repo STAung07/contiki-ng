@@ -29,59 +29,50 @@
  */
 
 #include <stdio.h>
-
 #include "contiki.h"
-#include "sys/rtimer.h"
-
+#include "sys/etimer.h"
+#include "buzzer.h"
 #include "board-peripherals.h"
-
 #include <stdint.h>
+#include <stdlib.h>
 
 PROCESS(task2, "task2");
 AUTOSTART_PROCESSES(&task2);
 
-static int counter_rtimer;
-static struct rtimer timer_rtimer;
-static rtimer_clock_t timeout_rtimer = RTIMER_SECOND /4;  
-
 static int state;
 static int num_buzzed;
-
-// light intensity
-static float prev_light_intensity;
-
-#define LIGHT_INTENSITY_THRESHOLD 300
 
 #define IDLE 0
 #define BUZZ 1
 #define WAIT 2
+
+#define LIGHT_INTENSITY_THRESHOLd 300
+#define LIGHT_SENSING_FREQUENCY 4
 /*---------------------------------------------------------------------------*/
 
 
 /*---------------------------------------------------------------------------*/
-void
-do_rtimer_timeout(struct rtimer *timer, void *ptr)
-{
-    printf("Timer interrupt triggered\r\n");
-    process_poll(&task2);
-}
 
-static float get_light_reading() {
+static int get_light_reading() {
     int value = opt_3001_sensor.value(0);
 
     if (value != CC26XX_SENSOR_READING_ERROR) {
-        // convert to lux unit
-        return value / (float)100;
+        return value / 100;
     }
 
-    printf("Light sensor is warming up\n\n");
+    printf("Light sensor is warming up...\n\n");
     return 0;
-}
+}   
+
 
 static void wait(int seconds)
 {
-    rtimer_clock_t timeout_rtimer = seconds * RTIMER_SECOND;
-    rtimer_set(&timer_rtimer, RTIMER_NOW() + timeout_rtimer, 0, do_rtimer_timeout, NULL);   
+    clock_time_t curr_tick;
+    clock_time_t end_tick;
+    curr_tick = clock_time();
+    end_tick = curr_tick + seconds * CLOCK_SECOND;
+    
+    while (clock_time() < end_tick);
 }
 
 PROCESS_THREAD(task2, ev, data)
@@ -89,21 +80,32 @@ PROCESS_THREAD(task2, ev, data)
     PROCESS_BEGIN();
 
     state = IDLE;
-    prev_light_intensity = get_light_reading();
+    int curr_light_intensity = get_light_reading();
+    int prev_light_intensity = curr_light_intensity;
 
-    while(1) {
+    int curr_light_ticks = clock_time();
+    int prev_light_ticks = curr_light_ticks;
+    const int LIGHT_TICKS_REQUIRED = CLOCK_SECOND / LIGHT_SENSING_FREQUENCY;
+
+    while (1) {
+        // every 32 ticks, detect curr_light_intensity
+        if (state == IDLE) {
+            curr_light_ticks = clock_time();
+
+            if (curr_light_ticks - prev_light_ticks >= LIGHT_TICKS_REQUIRED) {
+                prev_light_ticks = curr_light_ticks;
+                prev_light_intensity = curr_light_intensity;
+                curr_light_intensity = get_light_reading();
+            }
+        }
+
         switch (state) {
             case IDLE :
-                // if significant motion
-
-                // if change in light intensity > 300 lux
-                if (get_light_reading() - prev_light_intensity > LIGHT_INTENSITY_THRESHOLD) {
-                    PROCESS_YIELD();
-                    state = BUZZ;
-                    num_buzzed = 0;
+                // TODO: add condition for IMU
+                if (abs(curr_light_intensity - prev_light_intensity) <= 300) {
+                    wait(2);
                 }
-                wait(2); // Replace with IMU stuff and Light Sensor stuff
-                PROCESS_YIELD();
+
                 state = BUZZ;
                 num_buzzed = 0;
                 break;
@@ -115,7 +117,6 @@ PROCESS_THREAD(task2, ev, data)
                     num_buzzed++;
                     buzzer_start(2794);
                     wait(2);
-                    PROCESS_YIELD();
                     state = WAIT;
                 }
                 break;
@@ -123,7 +124,6 @@ PROCESS_THREAD(task2, ev, data)
             case WAIT:
                 buzzer_stop();
                 wait(2);
-                PROCESS_YIELD();
                 state = BUZZ;
                 break;
 
