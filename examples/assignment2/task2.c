@@ -47,7 +47,7 @@ static int num_buzzed;
 #define WAIT 2
 
 #define LIGHT_INTENSITY_THRESHOLd 300
-#define LIGHT_SENSING_FREQUENCY 4
+#define LIGHT_SENSING_FREQUENCY 2
 /*---------------------------------------------------------------------------*/
 
 
@@ -60,7 +60,7 @@ static int get_light_reading() {
         return value / 100;
     }
 
-    printf("Light sensor is warming up...\n\n");
+    printf("Light sensor is warming up...\r\n");
     return 0;
 }   
 
@@ -75,9 +75,14 @@ static void wait(int seconds)
     while (clock_time() < end_tick);
 }
 
+static void init_opt_reading(void) {
+    SENSORS_ACTIVATE(opt_3001_sensor);
+}
+
 PROCESS_THREAD(task2, ev, data)
 {
     PROCESS_BEGIN();
+    init_opt_reading();
 
     state = IDLE;
     int curr_light_intensity = get_light_reading();
@@ -91,23 +96,24 @@ PROCESS_THREAD(task2, ev, data)
         // every 32 ticks, detect curr_light_intensity
         if (state == IDLE) {
             curr_light_ticks = clock_time();
+            printf("Current light ticks: %d | Prev light ticks: %d\r\n", curr_light_ticks, prev_light_ticks);
 
             if (curr_light_ticks - prev_light_ticks >= LIGHT_TICKS_REQUIRED) {
                 prev_light_ticks = curr_light_ticks;
                 prev_light_intensity = curr_light_intensity;
                 curr_light_intensity = get_light_reading();
             }
+
+            printf("Curr light intensity: %d | Prev light intensity: %d\r\n", curr_light_intensity, prev_light_intensity);
         }
 
         switch (state) {
             case IDLE :
                 // TODO: add condition for IMU
-                if (abs(curr_light_intensity - prev_light_intensity) <= 300) {
-                    wait(2);
+                if (abs(curr_light_intensity - prev_light_intensity) > 300) {
+                    state = BUZZ;
+                    num_buzzed = 0;
                 }
-
-                state = BUZZ;
-                num_buzzed = 0;
                 break;
 
             case BUZZ:
