@@ -88,6 +88,8 @@ void do_rtimer_timeout(struct rtimer *timer, void *ptr) {
 
     prev_light_intensity = curr_light_intensity;
     curr_light_intensity = get_light_reading();
+    printf("Curr Light: %d\r\n", curr_light_intensity);
+    printf("Prev Light: %d\r\n", prev_light_intensity);
 }
 
 static void wait(int seconds)

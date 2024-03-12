@@ -75,7 +75,7 @@ rtimer_clock_t now=RTIMER_NOW();
   
   counter_rtimer++;
   printf(": %d (cnt) %d (ticks) %d.%d%d%d (sec) \n",counter_rtimer,now, s, ms1,ms2,ms3); 
-  get_mpu_reading();
+  // get_mpu_reading();
 
 }
 
