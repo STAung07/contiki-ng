@@ -54,44 +54,46 @@ static int num_buzzed;
 /*---------------------------------------------------------------------------*/
 
 
-static void wait(int seconds)
+static void set_timer(int seconds)
 {
-    clock_time_t curr_tick;
-    clock_time_t end_tick;
-    curr_tick = clock_time();
-    end_tick = curr_tick + seconds * CLOCK_SECOND;
-    
-    while (clock_time() < end_tick);
+    etimer_set(&timer_etimer, seconds * CLOCK_SECOND);
 }
 
 PROCESS_THREAD(task2, ev, data)
 {
     PROCESS_BEGIN();
 
+    buzzer_init();
     state = IDLE;
+
     while (1) {
         switch (state) {
             case IDLE :
                 // if significant motion
-                wait(2); // Replace with IMU stuff and Light Sensor stuff
+                set_timer(2); // Replace with IMU stuff and Light Sensor stuff
+                PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER);
                 state = BUZZ;
                 num_buzzed = 0;
                 break;
 
             case BUZZ:
+                printf("BUZZ State, num_buzzed: %d\r\n", num_buzzed);
                 if (num_buzzed == 4){
                     state = IDLE;
                 } else {
                     num_buzzed++;
                     buzzer_start(2794);
-                    wait(2);
+                    set_timer(2);
+                    PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER);
                     state = WAIT;
                 }
                 break;
 
             case WAIT:
+                printf("WAIT State\r\n");
                 buzzer_stop();
-                wait(2);
+                set_timer(2);
+                PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER);
                 state = BUZZ;
                 break;
 
