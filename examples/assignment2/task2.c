@@ -52,14 +52,99 @@ static int num_buzzed;
 
 
 /*---------------------------------------------------------------------------*/
+static void init_mpu_reading(void);
+static void get_mpu_reading(void);
 
+static void print_mpu_reading(int reading)
+{
+  if (reading < 0)
+  {
+    printf("-");
+    reading = -reading;
+  }
 
-static void wait(int seconds)
+  printf("%d.%02d", reading / 100, reading % 100);
+}
+
+static void init_mpu_reading(void)
+{
+  mpu_9250_sensor.configure(SENSORS_ACTIVE, MPU_9250_SENSOR_TYPE_ALL);
+}
+
+static int sample_IMU_with_prints() {
+    int total_reading = 0;
+    int value;
+
+    // printf("MPU Gyro: X=");
+    // value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_GYRO_X);
+    // print_mpu_reading(value);
+    // printf(" deg/sec\n");
+    // total_reading += value;
+
+    // printf("MPU Gyro: Y=");
+    // value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_GYRO_Y);
+    // print_mpu_reading(value);
+    // printf(" deg/sec\n");
+    // total_reading += value;
+
+    // printf("MPU Gyro: Z=");
+    // value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_GYRO_Z);
+    // print_mpu_reading(value);
+    // printf(" deg/sec\n");
+    // total_reading += value;
+
+    printf("MPU Acc: X=");
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_X);
+    print_mpu_reading(value);
+    printf(" G\r\n");
+    total_reading += value;
+
+    printf("MPU Acc: Y=");
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_Y);
+    print_mpu_reading(value);
+    printf(" G\r\n");
+    total_reading += value;
+
+    printf("MPU Acc: Z=");
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_Z);
+    print_mpu_reading(value);
+    printf(" G\r\n");
+    total_reading += value;
+
+    return total_reading;
+}
+
+static int sample_IMU_acc() {
+    int total_reading = 0;
+    int value;
+
+    // value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_GYRO_X);
+    // total_reading += value;
+
+    // value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_GYRO_Y);
+    // total_reading += value;
+
+    // value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_GYRO_Z);
+    // total_reading += value;
+
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_X);
+    total_reading += value;
+
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_Y);
+    total_reading += value;
+
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_Z);
+    total_reading += value;
+
+    return total_reading;
+}
+
+static void wait(float seconds)
 {
     clock_time_t curr_tick;
     clock_time_t end_tick;
     curr_tick = clock_time();
-    end_tick = curr_tick + seconds * CLOCK_SECOND;
+    end_tick = curr_tick + (seconds * CLOCK_SECOND);
     
     while (clock_time() < end_tick);
 }
@@ -67,15 +152,30 @@ static void wait(int seconds)
 PROCESS_THREAD(task2, ev, data)
 {
     PROCESS_BEGIN();
-
+    init_mpu_reading();
+    buzzer_init();
+    buzzer_start(2794);
+    wait(1);
+    buzzer_stop();
+    bool sampled = false;
+    int prev_IMU_reading;
+    int curr_IMU_reading;
     state = IDLE;
     while (1) {
         switch (state) {
-            case IDLE :
-                // if significant motion
-                wait(2); // Replace with IMU stuff and Light Sensor stuff
-                state = BUZZ;
-                num_buzzed = 0;
+            case IDLE:
+                // sample IMU readings for any significant change every 0.025s
+                wait(0.025);
+                curr_IMU_reading = sample_IMU_with_prints();
+                printf("current IMU reading: %d\r\n", curr_IMU_reading);
+                // significant motion detected
+                if (sampled && (curr_IMU_reading - prev_IMU_reading)/prev_IMU_reading > 0.5) {
+                    printf("Significant motion detected!\r\n");
+                    state = BUZZ;
+                    num_buzzed = 0;
+                }
+                prev_IMU_reading = curr_IMU_reading;
+                sampled = true;
                 break;
 
             case BUZZ:
@@ -103,3 +203,4 @@ PROCESS_THREAD(task2, ev, data)
 
     PROCESS_END();
 }
+
