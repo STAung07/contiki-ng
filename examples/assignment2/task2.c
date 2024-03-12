@@ -30,7 +30,6 @@
 
 #include <stdio.h>
 #include "contiki.h"
-#include "sys/etimer.h"
 #include "sys/rtimer.h"
 #include "buzzer.h"
 #include "board-peripherals.h"
@@ -49,19 +48,47 @@ static int num_buzzed;
 
 #define LIGHT_INTENSITY_THRESHOLd 300
 #define LIGHT_SENSING_FREQUENCY 2
+#define IMU_SENSING_FREQUENCY 40
 
 static int prev_light_intensity = 0;
 static int curr_light_intensity = 0;
+int prev_IMU_reading;
+int curr_IMU_reading;
+bool sampled = false;
 
 // RTimer for light sensor
 static struct rtimer timer_rtimer;
-static rtimer_clock_t timeout_rtimer = RTIMER_SECOND / LIGHT_SENSING_FREQUENCY;
+static rtimer_clock_t timeout_rtimer = RTIMER_SECOND / IMU_SENSING_FREQUENCY;
+static int ticks;
 
 /*---------------------------------------------------------------------------*/
 static int get_light_reading(void);
 static void init_opt_reading(void);
 
 /*---------------------------------------------------------------------------*/
+static void init_mpu_reading(void);
+static void get_mpu_reading(void);
+
+static void init_mpu_reading(void)
+{
+  mpu_9250_sensor.configure(SENSORS_ACTIVE, MPU_9250_SENSOR_TYPE_ALL);
+}
+
+static int sample_IMU_acc() {
+    int total_reading = 0;
+    int value;
+
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_X);
+    total_reading += value;
+
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_Y);
+    total_reading += value;
+
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_Z);
+    total_reading += value;
+
+    return total_reading;
+}
 
 static void init_opt_reading(void) {
     SENSORS_ACTIVATE(opt_3001_sensor);
@@ -77,47 +104,59 @@ static int get_light_reading() {
         return value / 100;
     }
     
-    printf("Light sensor is warming up...\r\n");
+    // printf("Light sensor is warming up...\r\n");
     return 0;
 }   
 
 void do_rtimer_timeout(struct rtimer *timer, void *ptr) {
+    if (ticks == 10) {
+        ticks = 0;
+        
+        prev_light_intensity = curr_light_intensity;
+        curr_light_intensity = get_light_reading();
+        // printf("Current Light: %d\r\n", curr_light_intensity);
+    }
+
+    ticks++;
+    prev_IMU_reading = curr_IMU_reading;
+    curr_IMU_reading = sample_IMU_acc();
+    // printf("current IMU reading: %d\r\n", curr_IMU_reading);
+    sampled = true;
     rtimer_clock_t now = RTIMER_NOW();
 
     rtimer_set(&timer_rtimer, RTIMER_NOW() + timeout_rtimer, 0, do_rtimer_timeout, NULL);
-
-    prev_light_intensity = curr_light_intensity;
-    curr_light_intensity = get_light_reading();
-    printf("Curr Light: %d\r\n", curr_light_intensity);
-    printf("Prev Light: %d\r\n", prev_light_intensity);
 }
 
 static void wait(int seconds)
 {
-    clock_time_t curr_tick;
-    clock_time_t end_tick;
-    curr_tick = clock_time();
-    end_tick = curr_tick + seconds * CLOCK_SECOND;
+    rtimer_clock_t curr_tick;
+    rtimer_clock_t end_tick;
+    curr_tick = RTIMER_NOW();
+    end_tick = curr_tick + seconds * RTIMER_SECOND;
     
-    while (clock_time() < end_tick);
+    while (RTIMER_NOW() < end_tick);
 }
 
 PROCESS_THREAD(task2, ev, data)
 {
     PROCESS_BEGIN();
     init_opt_reading();
-    wait(1);
+    init_mpu_reading();
+    rtimer_set(&timer_rtimer, RTIMER_NOW() + timeout_rtimer, 0, do_rtimer_timeout, NULL);
 
     state = IDLE;
-
+    ticks = 0;
     while (1) {
-        rtimer_set(&timer_rtimer, RTIMER_NOW() + timeout_rtimer, 0, do_rtimer_timeout, NULL);
-        PROCESS_YIELD();
-
         switch (state) {
             case IDLE :
                 // TODO: add condition for IMU
+                
                 if (abs(curr_light_intensity - prev_light_intensity) > 300) {
+                    state = BUZZ;
+                    num_buzzed = 0;
+                }
+                if (abs(curr_IMU_reading - prev_IMU_reading) > 100) {   
+                    // printf("Significant motion detected!\r\n");
                     state = BUZZ;
                     num_buzzed = 0;
                 }
@@ -144,6 +183,7 @@ PROCESS_THREAD(task2, ev, data)
                 // DIE
                 break;
         }
+        PROCESS_YIELD();
     }
 
     PROCESS_END();
