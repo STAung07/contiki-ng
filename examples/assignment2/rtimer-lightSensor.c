@@ -31,51 +31,75 @@
 #include <stdio.h>
 
 #include "contiki.h"
-#include "sys/etimer.h"
-#include "buzzer.h"
+#include "sys/rtimer.h"
 
-PROCESS(process_etimer, "ETimer");
-AUTOSTART_PROCESSES(&process_etimer);
+#include "board-peripherals.h"
 
-static int counter_etimer;
-int buzzerFrequency[8]={2093,2349,2637,2794,3156,3520,3951,4186}; // hgh notes on a piano
+#include <stdint.h>
 
+PROCESS(process_rtimer, "RTimer");
+AUTOSTART_PROCESSES(&process_rtimer);
+
+static int counter_rtimer;
+static struct rtimer timer_rtimer;
+static rtimer_clock_t timeout_rtimer = RTIMER_SECOND / 4;  
+/*---------------------------------------------------------------------------*/
+static void init_opt_reading(void);
+static void get_light_reading(void);
+
+/*---------------------------------------------------------------------------*/
 void
-do_etimer_timeout()
+do_rtimer_timeout(struct rtimer *timer, void *ptr)
 {
-  clock_time_t t;
-  int f,s, ms1,ms2,ms3;
-  t = clock_time();
-  s = t / CLOCK_SECOND;
-  ms1 = (t% CLOCK_SECOND)*10/CLOCK_SECOND;
-  ms2 = ((t% CLOCK_SECOND)*100/CLOCK_SECOND)%10;
-  ms3 = ((t% CLOCK_SECOND)*1000/CLOCK_SECOND)%10;
-  f = s % 9;
 
-  counter_etimer++;
-  printf("Time(E): %d (cnt) %d (ticks) %d.%d%d%d (sec) \n",counter_etimer,t, s, ms1,ms2,ms3); 
-  //toggle the buzzer
-  if (f == 8) 
-	buzzer_stop(); 
-  else 
-	buzzer_start(buzzerFrequency[f]);
+  rtimer_clock_t now=RTIMER_NOW();
+
+  rtimer_set(&timer_rtimer, RTIMER_NOW() + timeout_rtimer, 0, do_rtimer_timeout, NULL);
+
+  int s, ms1,ms2,ms3;
+  s = now /RTIMER_SECOND;
+  ms1 = (now% RTIMER_SECOND)*10/RTIMER_SECOND;
+  ms2 = ((now% RTIMER_SECOND)*100/RTIMER_SECOND)%10;
+  ms3 = ((now% RTIMER_SECOND)*1000/RTIMER_SECOND)%10;
+  
+  counter_rtimer++;
+  printf(": %d (cnt) %d (ticks) %d.%d%d%d (sec) \n",counter_rtimer,now, s, ms1,ms2,ms3); 
+  get_light_reading();
 
 }
 
-PROCESS_THREAD(process_etimer, ev, data)
+static void
+get_light_reading()
 {
-  static struct etimer timer_etimer;
+  int value;
 
+  value = opt_3001_sensor.value(0);
+  if(value != CC26XX_SENSOR_READING_ERROR) {
+    printf("OPT: Light=%d.%02d lux\n", value / 100, value % 100);
+  } else {
+    printf("OPT: Light Sensor's Warming Up\n\n");
+  }
+  init_opt_reading();
+}
+
+static void
+init_opt_reading(void)
+{
+  SENSORS_ACTIVATE(opt_3001_sensor);
+}
+
+PROCESS_THREAD(process_rtimer, ev, data)
+{
   PROCESS_BEGIN();
-  buzzer_init();
-  printf(" The value of CLOCK_SECOND is %d \n",CLOCK_SECOND);
+  init_opt_reading();
+
+  printf(" The value of RTIMER_SECOND is %d \n",RTIMER_SECOND);
+  printf(" The value of timeout_rtimer is %d \n",timeout_rtimer);
 
   while(1) {
-    etimer_set(&timer_etimer, CLOCK_SECOND);  //1s timer
-    PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER);
-    do_etimer_timeout();
+    rtimer_set(&timer_rtimer, RTIMER_NOW() + timeout_rtimer, 0,  do_rtimer_timeout, NULL);
+    PROCESS_YIELD();
   }
 
   PROCESS_END();
 }
-
