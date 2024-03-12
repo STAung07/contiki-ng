@@ -72,10 +72,11 @@ static int get_light_reading() {
 
     init_opt_reading();
 
-    if (value != CC26XX_SENSOR_READING_ERROR) {
+    if(value != CC26XX_SENSOR_READING_ERROR) {
+        init_opt_reading();
         return value / 100;
     }
-
+    
     printf("Light sensor is warming up...\r\n");
     return 0;
 }   
@@ -103,6 +104,7 @@ PROCESS_THREAD(task2, ev, data)
 {
     PROCESS_BEGIN();
     init_opt_reading();
+    wait(1);
 
     state = IDLE;
 
