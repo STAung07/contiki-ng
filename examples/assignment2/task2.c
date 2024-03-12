@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include "contiki.h"
 #include "sys/etimer.h"
+#include "sys/rtimer.h"
 #include "buzzer.h"
 #include "board-peripherals.h"
 #include <stdint.h>
@@ -48,13 +49,28 @@ static int num_buzzed;
 
 #define LIGHT_INTENSITY_THRESHOLd 300
 #define LIGHT_SENSING_FREQUENCY 2
+
+static int prev_light_intensity = 0;
+static int curr_light_intensity = 0;
+
+// RTimer for light sensor
+static struct rtimer timer_rtimer;
+static rtimer_clock_t timeout_rtimer = RTIMER_SECOND / LIGHT_SENSING_FREQUENCY;
+
+/*---------------------------------------------------------------------------*/
+static int get_light_reading(void);
+static void init_opt_reading(void);
+
 /*---------------------------------------------------------------------------*/
 
-
-/*---------------------------------------------------------------------------*/
+static void init_opt_reading(void) {
+    SENSORS_ACTIVATE(opt_3001_sensor);
+}
 
 static int get_light_reading() {
     int value = opt_3001_sensor.value(0);
+
+    init_opt_reading();
 
     if (value != CC26XX_SENSOR_READING_ERROR) {
         return value / 100;
@@ -64,6 +80,14 @@ static int get_light_reading() {
     return 0;
 }   
 
+void do_rtimer_timeout(struct rtimer *timer, void *ptr) {
+    rtimer_clock_t now = RTIMER_NOW();
+
+    rtimer_set(&timer_rtimer, RTIMER_NOW() + timeout_rtimer, 0, do_rtimer_timeout, NULL);
+
+    prev_light_intensity = curr_light_intensity;
+    curr_light_intensity = get_light_reading();
+}
 
 static void wait(int seconds)
 {
@@ -75,37 +99,16 @@ static void wait(int seconds)
     while (clock_time() < end_tick);
 }
 
-static void init_opt_reading(void) {
-    SENSORS_ACTIVATE(opt_3001_sensor);
-}
-
 PROCESS_THREAD(task2, ev, data)
 {
     PROCESS_BEGIN();
     init_opt_reading();
 
     state = IDLE;
-    int curr_light_intensity = get_light_reading();
-    int prev_light_intensity = curr_light_intensity;
-
-    int curr_light_ticks = clock_time();
-    int prev_light_ticks = curr_light_ticks;
-    const int LIGHT_TICKS_REQUIRED = CLOCK_SECOND / LIGHT_SENSING_FREQUENCY;
 
     while (1) {
-        // every 32 ticks, detect curr_light_intensity
-        if (state == IDLE) {
-            curr_light_ticks = clock_time();
-            printf("Current light ticks: %d | Prev light ticks: %d\r\n", curr_light_ticks, prev_light_ticks);
-
-            if (curr_light_ticks - prev_light_ticks >= LIGHT_TICKS_REQUIRED) {
-                prev_light_ticks = curr_light_ticks;
-                prev_light_intensity = curr_light_intensity;
-                curr_light_intensity = get_light_reading();
-            }
-
-            printf("Curr light intensity: %d | Prev light intensity: %d\r\n", curr_light_intensity, prev_light_intensity);
-        }
+        rtimer_set(&timer_rtimer, RTIMER_NOW() + timeout_rtimer, 0, do_rtimer_timeout, NULL);
+        PROCESS_YIELD();
 
         switch (state) {
             case IDLE :
