@@ -50,16 +50,16 @@ static int num_buzzed;
 #define LIGHT_SENSING_FREQUENCY 2
 /*---------------------------------------------------------------------------*/
 
-
+static void init_opt_reading(void);
 /*---------------------------------------------------------------------------*/
 
 static int get_light_reading() {
     int value = opt_3001_sensor.value(0);
-
+    init_opt_reading();
     if (value != CC26XX_SENSOR_READING_ERROR) {
         return value / 100;
     }
-
+    
     printf("Light sensor is warming up...\r\n");
     return 0;
 }   
@@ -96,15 +96,16 @@ PROCESS_THREAD(task2, ev, data)
         // every 32 ticks, detect curr_light_intensity
         if (state == IDLE) {
             curr_light_ticks = clock_time();
-            printf("Current light ticks: %d | Prev light ticks: %d\r\n", curr_light_ticks, prev_light_ticks);
+            // printf("Current light ticks: %d | Prev light ticks: %d\r\n", curr_light_ticks, prev_light_ticks);
 
             if (curr_light_ticks - prev_light_ticks >= LIGHT_TICKS_REQUIRED) {
                 prev_light_ticks = curr_light_ticks;
                 prev_light_intensity = curr_light_intensity;
                 curr_light_intensity = get_light_reading();
+                printf("Curr light intensity: %d | Prev light intensity: %d\r\n", curr_light_intensity, prev_light_intensity);
+
             }
 
-            printf("Curr light intensity: %d | Prev light intensity: %d\r\n", curr_light_intensity, prev_light_intensity);
         }
 
         switch (state) {
