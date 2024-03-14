@@ -55,12 +55,16 @@ static int prev_light_intensity = 0;
 static int curr_light_intensity = 0;
 int prev_IMU_reading;
 int curr_IMU_reading;
+
+bool light_sampled = false;
 bool sampled = false;
 
 // RTimer for light sensor
 static struct rtimer timer_rtimer;
 static rtimer_clock_t timeout_rtimer = RTIMER_SECOND / IMU_SENSING_FREQUENCY;
 static int ticks;
+static int buzz_state_ticks;
+static int wait_state_ticks;
 
 /*---------------------------------------------------------------------------*/
 static int get_light_reading(void);
@@ -111,14 +115,17 @@ static int get_light_reading() {
 
 void do_rtimer_timeout(struct rtimer *timer, void *ptr) {
     if (ticks == 10) {
+        
         ticks = 0;
         
         prev_light_intensity = curr_light_intensity;
         curr_light_intensity = get_light_reading();
-        // printf("Current Light: %d\r\n", curr_light_intensity);
+        printf("Timeout: Current Light: %d\r\n", curr_light_intensity);
     }
 
     ticks++;
+    buzz_state_ticks++;
+    wait_state_ticks++;
     prev_IMU_reading = curr_IMU_reading;
     curr_IMU_reading = sample_IMU_acc();
     // printf("current IMU reading: %d\r\n", curr_IMU_reading);
@@ -151,39 +158,50 @@ PROCESS_THREAD(task2, ev, data)
         switch (state) {
             case IDLE:
                 // ADD transition to INTERIM state when significant motion is detected
-                if (abs(curr_IMU_reading - prev_IMU_reading) > 70) {   
+                printf("Current IMU: %d\r\n", curr_IMU_reading);
+                if (abs(curr_IMU_reading - prev_IMU_reading) > 100) {   
                     // printf("Significant motion detected!\r\n");
                     state = INTERIM;
-                    num_buzzed = 0;
+                    //num_buzzed = 0;
                 }
                 break;
             case INTERIM: 
+                printf("Current Light: %d\r\n", curr_light_intensity);
                 // CHECK FOR LIGHT INTENSITY
                 if (abs(curr_light_intensity - prev_light_intensity) > 300) {
                     state = BUZZ;
-                    num_buzzed = 0;
+                    light_sampled = true;
+                    buzz_state_ticks = 0;
+                    //num_buzzed = 0;
                 }
                 break;
             case BUZZ:
                 // instead of num_buzzed, stay in wait and buzz cycle indefinitely until significant light change is detected
-                rtimer_clock_t curr_tick;
-                rtimer_clock_t end_tick;
-                curr_tick = RTIMER_NOW();
-                end_tick = curr_tick + seconds * RTIMER_SECOND;
-    
-                while (RTIMER_NOW() < end_tick) {
-                    // check light intensity for significant change
-                    if (abs(curr_light_intensity - prev_light_intensity) > 300) {
+                printf("Entered buzz state\r\n");
+                buzzer_start(2093);
+                
+                while (buzz_state_ticks < 80) {
+                    if (buzz_state_ticks > 20 && abs(curr_light_intensity - prev_light_intensity) > 300) {
                         state = IDLE;
                         break;
                     }
                 }
+
+                wait_state_ticks = 0;
+
+                if (state == IDLE) {
+                    buzzer_stop();
+                    break;
+                }
+
                 state = WAIT;
                 break;
 
             case WAIT:
+                printf("Entered Wait state\r\n");
                 buzzer_stop();
-                wait(2);
+                while (wait_state_ticks < 80);
+
                 state = BUZZ;
                 break;
 
