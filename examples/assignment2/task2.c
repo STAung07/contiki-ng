@@ -45,6 +45,7 @@ static int num_buzzed;
 #define IDLE 0
 #define BUZZ 1
 #define WAIT 2
+#define INTERIM 3
 
 #define LIGHT_INTENSITY_THRESHOLd 300
 #define LIGHT_SENSING_FREQUENCY 2
@@ -148,29 +149,36 @@ PROCESS_THREAD(task2, ev, data)
     ticks = 0;
     while (1) {
         switch (state) {
-            case IDLE :
-                // TODO: add condition for IMU
-                
+            case IDLE:
+                // ADD transition to INTERIM state when significant motion is detected
+                if (abs(curr_IMU_reading - prev_IMU_reading) > 70) {   
+                    // printf("Significant motion detected!\r\n");
+                    state = INTERIM;
+                    num_buzzed = 0;
+                }
+                break;
+            case INTERIM: 
+                // CHECK FOR LIGHT INTENSITY
                 if (abs(curr_light_intensity - prev_light_intensity) > 300) {
                     state = BUZZ;
                     num_buzzed = 0;
                 }
-                if (abs(curr_IMU_reading - prev_IMU_reading) > 100) {   
-                    // printf("Significant motion detected!\r\n");
-                    state = BUZZ;
-                    num_buzzed = 0;
-                }
                 break;
-
             case BUZZ:
-                if (num_buzzed == 4){
-                    state = IDLE;
-                } else {
-                    num_buzzed++;
-                    buzzer_start(2794);
-                    wait(2);
-                    state = WAIT;
+                // instead of num_buzzed, stay in wait and buzz cycle indefinitely until significant light change is detected
+                rtimer_clock_t curr_tick;
+                rtimer_clock_t end_tick;
+                curr_tick = RTIMER_NOW();
+                end_tick = curr_tick + seconds * RTIMER_SECOND;
+    
+                while (RTIMER_NOW() < end_tick) {
+                    // check light intensity for significant change
+                    if (abs(curr_light_intensity - prev_light_intensity) > 300) {
+                        state = IDLE;
+                        break;
+                    }
                 }
+                state = WAIT;
                 break;
 
             case WAIT:
