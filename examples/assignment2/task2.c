@@ -63,9 +63,13 @@ bool sampled = false;
 static struct rtimer timer_rtimer;
 static rtimer_clock_t timeout_rtimer = RTIMER_SECOND / IMU_SENSING_FREQUENCY;
 static int ticks;
-static int buzz_state_ticks;
-static int wait_state_ticks;
+static int buzz_state_ticks = 0;
+static int reset_buzz_state_tick = false;
+static int wait_state_ticks = 0;
+static int reset_wait_state_tick = false;
 
+static bool end_tick_computed = false;
+static rtimer_clock_t end_tick;
 /*---------------------------------------------------------------------------*/
 static int get_light_reading(void);
 static void init_opt_reading(void);
@@ -122,16 +126,25 @@ void do_rtimer_timeout(struct rtimer *timer, void *ptr) {
         curr_light_intensity = get_light_reading();
         printf("Timeout: Current Light: %d\r\n", curr_light_intensity);
     }
+    if (state == BUZZ) {
+        buzz_state_ticks++;
+    }
+    if (state == WAIT) {
+        wait_state_ticks++;
+    }
+    if (reset_buzz_state_tick) {
+        buzz_state_ticks = 0;
+    }
+    if (reset_wait_state_tick) {
+        wait_state_ticks = 0;
+    }
 
     ticks++;
-    buzz_state_ticks++;
-    wait_state_ticks++;
+
     prev_IMU_reading = curr_IMU_reading;
     curr_IMU_reading = sample_IMU_acc();
     // printf("current IMU reading: %d\r\n", curr_IMU_reading);
-    sampled = true;
     rtimer_clock_t now = RTIMER_NOW();
-
     rtimer_set(&timer_rtimer, RTIMER_NOW() + timeout_rtimer, 0, do_rtimer_timeout, NULL);
 }
 
@@ -170,38 +183,59 @@ PROCESS_THREAD(task2, ev, data)
                 // CHECK FOR LIGHT INTENSITY
                 if (abs(curr_light_intensity - prev_light_intensity) > 300) {
                     state = BUZZ;
-                    light_sampled = true;
-                    buzz_state_ticks = 0;
-                    //num_buzzed = 0;
+                    end_tick_computed = false;
                 }
                 break;
             case BUZZ:
                 // instead of num_buzzed, stay in wait and buzz cycle indefinitely until significant light change is detected
                 printf("Entered buzz state\r\n");
                 buzzer_start(2093);
-                
-                while (buzz_state_ticks < 80) {
-                    if (buzz_state_ticks > 20 && abs(curr_light_intensity - prev_light_intensity) > 300) {
-                        state = IDLE;
+                if (end_tick_computed == false) {
+                    end_tick = RTIMER_NOW() + 2 * RTIMER_SECOND;
+                    end_tick_computed = true;
+                } else {
+                    if (RTIMER_NOW() < end_tick) {
+                        if (RTIMER_NOW() > end_tick - RTIMER_SECOND && abs(curr_light_intensity - prev_light_intensity) > 300) {
+                            printf("ENTERED IF STATEMENT\r\n");
+                            buzzer_stop();
+                            state = IDLE;
+                            end_tick_computed = false; 
+                            break;
+                        }
+                    } else {
+                        state = WAIT;
+                        end_tick_computed = false;
                         break;
                     }
                 }
-
-                wait_state_ticks = 0;
-
-                if (state == IDLE) {
-                    buzzer_stop();
-                    break;
-                }
-
-                state = WAIT;
                 break;
+                // {
+                //                     PROCESS_PAUSE();
+
+                // if (abs(curr_light_intensity - prev_light_intensity) > 300) {
+                //     printf("ENTERED IF STATEMENT\r\n");
+                //     state = IDLE;
+                //     break;
+                // }
+                // // }
+                
+                // printf("here1\r\n");
+
+                // printf("here2\r\n");
+
+                // if (state == IDLE) {
+                //     buzzer_stop();
+                //     break;
+                // }
+                // printf("here3\r\n");
+                // state = WAIT;
+                // printf("here4\r\n");
+
 
             case WAIT:
                 printf("Entered Wait state\r\n");
                 buzzer_stop();
-                while (wait_state_ticks < 80);
-
+                wait(4);
                 state = BUZZ;
                 break;
 
