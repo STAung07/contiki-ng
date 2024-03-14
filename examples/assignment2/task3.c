@@ -1,0 +1,242 @@
+/*
+ * Copyright (C) 2015, Intel Corporation. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
+ * COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#include <stdio.h>
+#include "contiki.h"
+#include "sys/rtimer.h"
+#include "buzzer.h"
+#include "board-peripherals.h"
+#include <stdint.h>
+#include <stdlib.h>
+
+PROCESS(task3, "task3");
+AUTOSTART_PROCESSES(&task3);
+
+static int state;
+static int num_buzzed;
+
+#define IDLE 0
+#define BUZZ 1
+#define WAIT 2
+#define INTERIM 3
+
+#define LIGHT_INTENSITY_THRESHOLd 300
+#define LIGHT_SENSING_FREQUENCY 2
+#define IMU_SENSING_FREQUENCY 40
+
+static int prev_light_intensity = 0;
+static int curr_light_intensity = 0;
+int prev_IMU_reading;
+int curr_IMU_reading;
+
+bool light_sampled = false;
+bool sampled = false;
+
+// RTimer for light sensor
+static struct rtimer timer_rtimer;
+static rtimer_clock_t timeout_rtimer = RTIMER_SECOND / IMU_SENSING_FREQUENCY;
+static int ticks;
+static int buzz_state_ticks = 0;
+static int reset_buzz_state_tick = false;
+static int wait_state_ticks = 0;
+static int reset_wait_state_tick = false;
+
+static bool end_tick_computed = false;
+static rtimer_clock_t end_tick;
+/*---------------------------------------------------------------------------*/
+static int get_light_reading(void);
+static void init_opt_reading(void);
+
+/*---------------------------------------------------------------------------*/
+static void init_mpu_reading(void);
+static void get_mpu_reading(void);
+
+static void init_mpu_reading(void)
+{
+  mpu_9250_sensor.configure(SENSORS_ACTIVE, MPU_9250_SENSOR_TYPE_ALL);
+}
+
+static int sample_IMU_acc() {
+    int total_reading = 0;
+    int value;
+
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_X);
+    total_reading += value;
+
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_Y);
+    total_reading += value;
+
+    value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_ACC_Z);
+    total_reading += value;
+
+    return total_reading;
+}
+
+static void init_opt_reading(void) {
+    SENSORS_ACTIVATE(opt_3001_sensor);
+}
+
+static int get_light_reading() {
+    int value = opt_3001_sensor.value(0);
+
+    init_opt_reading();
+
+    if(value != CC26XX_SENSOR_READING_ERROR) {
+        init_opt_reading();
+        return value / 100;
+    }
+    
+    // printf("Light sensor is warming up...\r\n");
+    return 0;
+}   
+
+void do_rtimer_timeout(struct rtimer *timer, void *ptr) {
+    if (ticks == 10) {
+        
+        ticks = 0;
+        
+        prev_light_intensity = curr_light_intensity;
+        curr_light_intensity = get_light_reading();
+        printf("Timeout: Current Light: %d\r\n", curr_light_intensity);
+    }
+    if (state == BUZZ) {
+        buzz_state_ticks++;
+    }
+    if (state == WAIT) {
+        wait_state_ticks++;
+    }
+    if (reset_buzz_state_tick) {
+        buzz_state_ticks = 0;
+    }
+    if (reset_wait_state_tick) {
+        wait_state_ticks = 0;
+    }
+
+    ticks++;
+
+    prev_IMU_reading = curr_IMU_reading;
+    curr_IMU_reading = sample_IMU_acc();
+    // printf("current IMU reading: %d\r\n", curr_IMU_reading);
+    rtimer_clock_t now = RTIMER_NOW();
+    rtimer_set(&timer_rtimer, RTIMER_NOW() + timeout_rtimer, 0, do_rtimer_timeout, NULL);
+}
+
+static void wait(int seconds)
+{
+    rtimer_clock_t curr_tick;
+    rtimer_clock_t end_tick;
+    curr_tick = RTIMER_NOW();
+    end_tick = curr_tick + seconds * RTIMER_SECOND;
+    
+    while (RTIMER_NOW() < end_tick);
+}
+
+PROCESS_THREAD(task3, ev, data)
+{
+    PROCESS_BEGIN();
+    init_opt_reading();
+    init_mpu_reading();
+    rtimer_set(&timer_rtimer, RTIMER_NOW() + timeout_rtimer, 0, do_rtimer_timeout, NULL);
+
+    state = IDLE;
+    ticks = 0;
+    while (1) {
+        switch (state) {
+            case IDLE:
+                printf("\n\n\n\n\n INSIDE IDLE STATE\n\n\n\n\n");
+                // ADD transition to INTERIM state when significant motion is detected
+                printf("Current IMU: %d\r\n", curr_IMU_reading);
+                if (abs(curr_IMU_reading - prev_IMU_reading) > 100) {   
+                    // printf("Significant motion detected!\r\n");
+                    state = INTERIM;
+                    //num_buzzed = 0;
+                }
+                break;
+            case INTERIM: 
+                printf("\n\n\n\n\n INSIDE INTERIM STATE\n\n\n\n\n");
+ 
+                printf("Current Light: %d\r\n", curr_light_intensity);
+                // CHECK FOR LIGHT INTENSITY
+                if (abs(curr_light_intensity - prev_light_intensity) > 300) {
+                    state = BUZZ;
+                    end_tick_computed = false;
+                }
+                break;
+            case BUZZ:
+                // instead of num_buzzed, stay in wait and buzz cycle indefinitely until significant light change is detected
+                printf("Entered buzz state\r\n");
+                if (end_tick_computed == false) {
+                    buzzer_start(2093);
+
+                    end_tick = RTIMER_NOW() + 2 * RTIMER_SECOND;
+                    end_tick_computed = true;
+                } else {
+                    if (RTIMER_NOW() < end_tick) {
+                        if (RTIMER_NOW() > end_tick - RTIMER_SECOND && abs(curr_light_intensity - prev_light_intensity) > 300) {
+                            printf("ENTERED IF STATEMENT\r\n");
+                            buzzer_stop();
+                            state = IDLE;
+                            end_tick_computed = false; 
+                            break;
+                        }
+                    } else {
+                        state = WAIT;
+                        end_tick_computed = false;
+                        break;
+                    }
+                }
+                break;
+
+
+            case WAIT:
+                printf("Entered Wait state\r\n");
+
+                if (end_tick_computed == false) {
+                    buzzer_stop();
+
+                    end_tick = RTIMER_NOW() + 4 * RTIMER_SECOND;
+                    end_tick_computed = true;
+                } else {
+                    if (RTIMER_NOW() > end_tick) {
+                        state = BUZZ;
+                        end_tick_computed = false;
+                    }
+                }
+                break;
+
+            default:
+                // DIE
+                break;
+        }
+        PROCESS_YIELD();
+    }
+
+    PROCESS_END();
+}
