@@ -13,19 +13,13 @@
 #include <stdio.h> 
 #include "node-id.h"
 
-// Identification information of the node
-
-// RTIMER_SECOND represents the number of ticks per second
 // DISCO Algorithm
-#define DISCO_FIRST_PRIME 3
+// first, select two prime numbers
+#define DISCO_FIRST_PRIME 7
 #define DISCO_SECOND_PRIME 5
-
-
 
 // Configures the wake-up timer for neighbour discovery 
 #define WAKE_TIME RTIMER_SECOND/10    // 10 HZ, 0.1s
-
-#define SLEEP_CYCLE  9        	      // 0 for never sleep
 #define SLEEP_SLOT RTIMER_SECOND/10   // sleep slot should not be too large to prevent overflow
 
 // For neighbour discovery, we would like to send message to everyone. We use Broadcast address:
@@ -60,6 +54,12 @@ unsigned long curr_timestamp;
 PROCESS(nbr_discovery_process, "cc2650 neighbour discovery process");
 AUTOSTART_PROCESSES(&nbr_discovery_process);
 
+/**********************************************
+ * 
+ * Function for receiving a packet
+ * 
+ **********************************************/
+
 // Function called after reception of a packet
 void receive_packet_callback(const void *data, uint16_t len, const linkaddr_t *src, const linkaddr_t *dest) 
 {
@@ -75,12 +75,16 @@ void receive_packet_callback(const void *data, uint16_t len, const linkaddr_t *s
   }
 }
 
+/**********************************************
+ * 
+ * Function for sending packets
+ * 
+ **********************************************/
+
 // Scheduler function for the sender of neighbour discovery packets
 char sender_scheduler(struct rtimer *t, void *ptr) {
- 
   static uint16_t i = 0;
-  
-  static int NumSleep=0;
+
  
   // Begin the protothread
   PT_BEGIN(&pt);
@@ -88,56 +92,47 @@ char sender_scheduler(struct rtimer *t, void *ptr) {
   // Get the current time stamp
   curr_timestamp = clock_time();
 
-  printf("Start clock %lu ticks, timestamp %3lu.%03lu\r\n", curr_timestamp, curr_timestamp / CLOCK_SECOND, 
-  ((curr_timestamp % CLOCK_SECOND)*1000) / CLOCK_SECOND);
+  printf("<-- Disco Algorithm -->\r\n");
+  printf("Start clock %lu ticks, timestamp %3lu.%03lu\r\n", curr_timestamp, curr_timestamp / CLOCK_SECOND, ((curr_timestamp % CLOCK_SECOND)*1000) / CLOCK_SECOND);
 
-  while(1){
-    // radio on
-    NETSTACK_RADIO.on();
+  while (1){
+    // Disco Discovery Algorithm here
+    int slot = clock_time() / WAKE_TIME;
 
-    // send NUM_SEND number of neighbour discovery beacon packets
-    for(i = 0; i < NUM_SEND; i++){
-      // Initialize the nullnet module with information of packet to be trasnmitted
-      nullnet_buf = (uint8_t *)&data_packet; //data transmitted
-      nullnet_len = sizeof(data_packet); //length of data transmitted
-      
-      data_packet.seq++;
-      
-      curr_timestamp = clock_time();
-      
-      data_packet.timestamp = curr_timestamp;
+    // time to wake up and try discovery
+    if (slot % DISCO_FIRST_PRIME == 0 || slot % DISCO_SECOND_PRIME == 0) {
+        // on the radio
+        NETSTACK_RADIO.on();
 
-      printf("Send seq# %lu  @ %8lu ticks   %3lu.%03lu\r\n", data_packet.seq, curr_timestamp, curr_timestamp / CLOCK_SECOND, ((curr_timestamp % CLOCK_SECOND)*1000) / CLOCK_SECOND);
+        // send NUM_SEND number of neighbour discovery beacon packets
+        for(i = 0; i < NUM_SEND; i++){
+            // Initialize the nullnet module with information of packet to be trasnmitted
+            nullnet_buf = (uint8_t *)&data_packet; //data transmitted
+            nullnet_len = sizeof(data_packet); //length of data transmitted
+            
+            data_packet.seq++;
+            
+            curr_timestamp = clock_time();
+            
+            data_packet.timestamp = curr_timestamp;
 
-      NETSTACK_NETWORK.output(&dest_addr); //Packet transmission
-      
-      // wait for WAKE_TIME before sending the next packet
-      if(i != (NUM_SEND - 1)){
-        rtimer_set(t, RTIMER_TIME(t) + WAKE_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
-        PT_YIELD(&pt);
-      }
-    }
+            printf("Send seq# %lu  @ %8lu ticks   %3lu.%03lu\r\n", data_packet.seq, curr_timestamp, curr_timestamp / CLOCK_SECOND, ((curr_timestamp % CLOCK_SECOND)*1000) / CLOCK_SECOND);
 
-    // sleep for a random number of slots
-    if(SLEEP_CYCLE != 0){
-    
-      // radio off
-      NETSTACK_RADIO.off();
+            NETSTACK_NETWORK.output(&dest_addr); //Packet transmission
+            
+            // wait for WAKE_TIME before sending the next packet
+            if(i != (NUM_SEND - 1)){
+                rtimer_set(t, RTIMER_TIME(t) + WAKE_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
+                PT_YIELD(&pt);
+            }
+        }
 
-      // SLEEP_SLOT cannot be too large as value will overflow,
-      // to have a large sleep interval, sleep many times instead
-
-      // get a value that is uniformly distributed between 0 and 2*SLEEP_CYCLE
-      // the average is SLEEP_CYCLE 
-      NumSleep = random_rand() % (2 * SLEEP_CYCLE + 1);  
-      printf(" Sleep for %d slots \n",NumSleep);
-
-      // NumSleep should be a constant or static int
-      for(i = 0; i < NumSleep; i++){
+        // off the radio
+        NETSTACK_RADIO.off();
+    } else {
+        // not discovery slot, sleep instead
         rtimer_set(t, RTIMER_TIME(t) + SLEEP_SLOT, 1, (rtimer_callback_t)sender_scheduler, ptr);
         PT_YIELD(&pt);
-      }
-
     }
   }
   
@@ -148,27 +143,21 @@ char sender_scheduler(struct rtimer *t, void *ptr) {
 // Main thread that handles the neighbour discovery process
 PROCESS_THREAD(nbr_discovery_process, ev, data)
 {
-
- // static struct etimer periodic_timer;
-
+  // static struct etimer periodic_timer;
   PROCESS_BEGIN();
 
-    // initialize data packet sent for neighbour discovery exchange
+  // initialize data packet sent for neighbour discovery exchange
   data_packet.src_id = node_id; //Initialize the node ID
   data_packet.seq = 0; //Initialize the sequence number of the packet
   
   nullnet_set_input_callback(receive_packet_callback); //initialize receiver callback
   linkaddr_copy(&dest_addr, &linkaddr_null);
 
-
-
   printf("CC2650 neighbour discovery\n");
   printf("Node %d will be sending packet of size %d Bytes\n", node_id, (int)sizeof(data_packet_struct));
 
   // Start sender in one millisecond.
   rtimer_set(&rt, RTIMER_NOW() + (RTIMER_SECOND / 1000), 1, (rtimer_callback_t)sender_scheduler, NULL);
-
-  
 
   PROCESS_END();
 }
