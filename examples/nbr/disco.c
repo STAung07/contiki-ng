@@ -15,12 +15,12 @@
 
 // DISCO Algorithm
 // first, select two prime numbers
-#define DISCO_FIRST_PRIME 7
+#define DISCO_FIRST_PRIME 3
 #define DISCO_SECOND_PRIME 5
 
 // Configures the wake-up timer for neighbour discovery 
-#define WAKE_TIME RTIMER_SECOND/10    // 10 HZ, 0.1s
-#define SLEEP_SLOT RTIMER_SECOND/10   // sleep slot should not be too large to prevent overflow
+#define WAKE_TIME (RTIMER_SECOND * 6)/10    // 10 HZ, 0.1s
+#define SLEEP_SLOT (RTIMER_SECOND * 6)/10   // sleep slot should not be too large to prevent overflow
 
 // For neighbour discovery, we would like to send message to everyone. We use Broadcast address:
 linkaddr_t dest_addr;
