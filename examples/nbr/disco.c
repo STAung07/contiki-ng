@@ -68,9 +68,11 @@ void receive_packet_callback(const void *data, uint16_t len, const linkaddr_t *s
     
     // Copy the content of packet into the data structure
     memcpy(&received_packet_data, data, len);
+    if (received_packet_data.src_id == 5380) {
+      // Print the details of the received packet
+      printf("Received neighbour discovery packet %lu with rssi %d from %ld\r\n", received_packet_data.seq, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI),received_packet_data.src_id);
+    }
     
-    // Print the details of the received packet
-    printf("Received neighbour discovery packet %lu with rssi %d from %ld\r\n", received_packet_data.seq, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI),received_packet_data.src_id);
   }
 }
 
