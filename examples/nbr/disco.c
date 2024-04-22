@@ -13,19 +13,18 @@
 #include <stdio.h> 
 #include "node-id.h"
 
-// DISCO Algorithm
-// first, select two prime numbers
-#define DISCO_FIRST_PRIME 3
-#define DISCO_SECOND_PRIME 5
+// DISCO Algorithm constant
+#define DISCO_PRIME 2 // (for sender)
+// #define DISCO_PRIME 5 // (for receiver)
 
 // Configures the wake-up timer for neighbour discovery 
-#define WAKE_TIME RTIMER_SECOND/10    // 10 HZ, 0.1s
-#define SLEEP_SLOT RTIMER_SECOND/10   // sleep slot should not be too large to prevent overflow
+#define WAKE_TIME RTIMER_SECOND    // 1 HZ, 1s
+#define SLEEP_SLOT RTIMER_SECOND   // sleep slot should not be too large to prevent overflow
 
 // For neighbour discovery, we would like to send message to everyone. We use Broadcast address:
 linkaddr_t dest_addr;
 
-#define NUM_SEND 2
+#define NUM_SEND 1 // change number of packets sent to 1 for power efficiency
 /*---------------------------------------------------------------------------*/
 typedef struct {
   unsigned long src_id;
@@ -84,7 +83,6 @@ void receive_packet_callback(const void *data, uint16_t len, const linkaddr_t *s
 // Scheduler function for the sender of neighbour discovery packets
 char sender_scheduler(struct rtimer *t, void *ptr) {
   static uint16_t i = 0;
-  static int NumSleep=0;
  
   // Begin the protothread
   PT_BEGIN(&pt);
@@ -100,7 +98,7 @@ char sender_scheduler(struct rtimer *t, void *ptr) {
     int slot = clock_time() / WAKE_TIME;
 
     // time to wake up and try discovery
-    if (slot % DISCO_FIRST_PRIME == 0 || slot % DISCO_SECOND_PRIME == 0) {
+    if (slot % DISCO_PRIME == 0) {
         // on the radio
         NETSTACK_RADIO.on();
 
