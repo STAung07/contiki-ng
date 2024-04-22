@@ -14,8 +14,7 @@
 #include "node-id.h"
 
 // DISCO Algorithm constant
-#define DISCO_PRIME 2 // (for sender)
-// #define DISCO_PRIME 5 // (for receiver)
+#define DISCO_PRIME 3 // (for sender & receiver)
 
 // Configures the wake-up timer for neighbour discovery 
 #define WAKE_TIME RTIMER_SECOND    // 1 HZ, 1s
