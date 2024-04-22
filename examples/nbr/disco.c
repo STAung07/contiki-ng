@@ -14,11 +14,14 @@
 #include "node-id.h"
 
 // DISCO Algorithm constant
-#define DISCO_PRIME 3 // (for sender & receiver)
+#define DISCO_PRIME 3 // (for device A)
+// #define DISCO_PRIME 7 // (for device B)
 
 // Configures the wake-up timer for neighbour discovery 
-#define WAKE_TIME RTIMER_SECOND    // 1 HZ, 1s
-#define SLEEP_SLOT RTIMER_SECOND   // sleep slot should not be too large to prevent overflow
+#define WAKE_TIME ((RTIMER_SECOND*4)/10)    // 2.5 HZ, 0.4s
+#define SLEEP_SLOT ((RTIMER_SECOND*4)/10)   // sleep slot should not be too large to prevent overflow
+
+#define NEIGHBOUR_DEVICE_ID 5380 // change this to the device ID of the neighbour
 
 // For neighbour discovery, we would like to send message to everyone. We use Broadcast address:
 linkaddr_t dest_addr;
@@ -67,11 +70,11 @@ void receive_packet_callback(const void *data, uint16_t len, const linkaddr_t *s
     
     // Copy the content of packet into the data structure
     memcpy(&received_packet_data, data, len);
-    if (received_packet_data.src_id == 5380) {
+
+    if (received_packet_data.src_id == NEIGHBOUR_DEVICE_ID) {
       // Print the details of the received packet
       printf("Received neighbour discovery packet %lu with rssi %d from %ld\r\n", received_packet_data.seq, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI),received_packet_data.src_id);
     }
-    
   }
 }
 
