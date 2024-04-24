@@ -14,14 +14,14 @@
 #include "node-id.h"
 
 // DISCO Algorithm constant
-#define DISCO_PRIME 3 // (for device A)
-// #define DISCO_PRIME 7 // (for device B)
+// #define DISCO_PRIME 3 // (for device A)
+#define DISCO_PRIME 7 // (for device B)
 
 // Configures the wake-up timer for neighbour discovery 
 #define WAKE_TIME ((RTIMER_SECOND*4)/10)    // 2.5 HZ, 0.4s
 #define SLEEP_SLOT ((RTIMER_SECOND*4)/10)   // sleep slot should not be too large to prevent overflow
 
-#define NEIGHBOUR_DEVICE_ID 5380 // change this to the device ID of the neighbour
+#define NEIGHBOUR_DEVICE_ID 7170 // change this to the device ID of the neighbour
 
 // For neighbour discovery, we would like to send message to everyone. We use Broadcast address:
 linkaddr_t dest_addr;
