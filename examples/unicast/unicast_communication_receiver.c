@@ -51,18 +51,15 @@ PROCESS_THREAD(unicast_process, ev, data)
   if(!linkaddr_cmp(&dest_addr, &linkaddr_node_addr)) { //ensures destination is not same as sender
     etimer_set(&periodic_timer, SEND_INTERVAL);
     while(1) {
-      if (count == 240) {
-        break;
-      }
       PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
       // LOG_INFO("Sending %u to ", count);
       // LOG_INFO_LLADDR(&dest_addr);
       // LOG_INFO_("\n");
       // printf("1 Clock Second = %u\r\n", CLOCK_SECOND);
-      printf("Sending %u to Receiver\r\n", count);
+      // printf("Sending %u to Receiver\r\n", count);
 
-      NETSTACK_NETWORK.output(&dest_addr); //Packet transmission
-      count++;
+      // NETSTACK_NETWORK.output(&dest_addr); //Packet transmission
+      // count++;
       etimer_reset(&periodic_timer);
     }
   }

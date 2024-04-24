@@ -1,4 +1,4 @@
-CONTIKI_PROJECT = unicast_communication
+CONTIKI_PROJECT = unicast_communication_receiver unicast_communication_transmitter
 all: $(CONTIKI_PROJECT)
 
 CONTIKI = ../..
