@@ -1,4 +1,4 @@
-CONTIKI_PROJECT = nbr disco
+CONTIKI_PROJECT = task2_A task2_B
 all: $(CONTIKI_PROJECT)
 
 CONTIKI = ../..

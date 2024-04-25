@@ -17,26 +17,24 @@
 #include "board-peripherals.h"
 
 // Identification information of the node
-
+#define NEIGHBOUR_DEVICE_ID 5380 // change this to the device ID of the neighbour
+#define CURRENT_DEVICE_ID 9730 // change this to the device ID of the neighbour
 
 // Configures the wake-up timer for neighbour discovery 
 #define WAKE_TIME RTIMER_SECOND/10    // 10 HZ, 0.1s
-#define ACK_TIME RTIMER_SECOND
+
 #define SLEEP_CYCLE  9        	      // 0 for never sleep
 #define SLEEP_SLOT RTIMER_SECOND/10   // sleep slot should not be too large to prevent overflow
-#define NEIGHBOUR_DEVICE_ID 9730
-
 
 // For neighbour discovery, we would like to send message to everyone. We use Broadcast address:
 linkaddr_t dest_addr;
 
-#define NUM_SEND 10
+#define NUM_SEND 2
 /*---------------------------------------------------------------------------*/
 typedef struct {
   unsigned long src_id;
   unsigned long timestamp;
-  long seq;
-  int light;
+  unsigned long seq; 
   
 } data_packet_struct;
 
@@ -56,21 +54,9 @@ static data_packet_struct data_packet;
 // Current time stamp of the node
 unsigned long curr_timestamp;
 
-bool start_neighbour_discovery = false;
-bool start_sending_light = false;
-bool start_sending_ack = false;
-bool receiver_acked = false;
-bool finish_sending = false;
-
-int light_readings[60];
-int num_read = 0;
-int num_sent = 0;
-
 // Starts the main contiki neighbour discovery process
 PROCESS(task2_A, "cc2650 neighbour discovery process");
 AUTOSTART_PROCESSES(&task2_A);
-
-
 
 
 // Function called after reception of a packet
@@ -88,33 +74,9 @@ void receive_packet_callback(const void *data, uint16_t len, const linkaddr_t *s
     // Copy the content of packet into the data structure
     memcpy(&received_packet_data, data, len);
     
-    if (received_packet_data.src_id == NEIGHBOUR_DEVICE_ID && start_neighbour_discovery) {
+    if (received_packet_data.src_id == NEIGHBOUR_DEVICE_ID) {
       // Print the details of the received packet
-      printf("Received neighbour discovery packet %ld with rssi %d from %ld\r\n", received_packet_data.seq, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI),received_packet_data.src_id);
-
-      if ((signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI) > -40 && received_packet_data.seq == -1 ) {
-        // link is good and receiver is discovered
-        printf("LINK IS GOOD\n SENDING ACK 0 TO RECEIVER \r\n");
-        start_sending_ack = true;
-        // printf("send ack 0\n\r");
-        NETSTACK_RADIO.on();
-        nullnet_buf = (uint8_t *)&data_packet;
-        nullnet_len = sizeof(data_packet);
-        data_packet.seq = 0;
-        data_packet.timestamp = clock_time();
-        data_packet.light = 0;
-        NETSTACK_NETWORK.output(&dest_addr);
-        NETSTACK_RADIO.off();
-        printf("sent ack\r\n");
-      }
-      if (received_packet_data.seq == 0) {
-        // receiver has received ack 0 from sender, can start to send light packets
-        printf("RECEIVED ACK FROM RECEIVER \r\n START SENDING LIGHT PACKETS TO RECEIVER \r\n");
-
-        receiver_acked = true;
-        start_sending_light = true;
-      }
-
+      printf("Received neighbour discovery packet %lu with rssi %d from %ld\r\n", received_packet_data.seq, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI),received_packet_data.src_id);
     }
   }
 
@@ -126,54 +88,26 @@ char sender_scheduler(struct rtimer *t, void *ptr) {
   static uint16_t i = 0;
   
   static int NumSleep=0;
-  
+ 
   // Begin the protothread
   PT_BEGIN(&pt);
 
-  while (!start_sending_ack) {
-    // printf("waiting to send ack 0\n");
-    NETSTACK_RADIO.on();
-    rtimer_set(t, RTIMER_TIME(t) + WAKE_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
-    PT_YIELD(&pt);
-  }
-  NETSTACK_RADIO.off();
-  printf("trying to send ack 0 until receiver receives and acks\n");
-  // while (!receiver_acked) {
-  //   printf("send ack 0\n\r");
-  //   // NETSTACK_RADIO.on();
-  //   // data_packet.seq = 0;
-  //   // data_packet.timestamp = clock_time();
-  //   // data_packet.light = 0;
-  //   // nullnet_buf = (uint8_t *)&data_packet;
-  //   // nullnet_len = sizeof(data_packet);
-  //   // NETSTACK_NETWORK.output(&dest_addr);
-  //   // NETSTACK_RADIO.off();
-  //   rtimer_set(t, RTIMER_TIME(t) + WAKE_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
-  //   PT_YIELD(&pt);
-      
-  // }
-
-  // receiver has acked
-  // printf("Receiver acked \n");
-
   // Get the current time stamp
   curr_timestamp = clock_time();
+
   printf("Start clock %lu ticks, timestamp %3lu.%03lu\n", curr_timestamp, curr_timestamp / CLOCK_SECOND, 
   ((curr_timestamp % CLOCK_SECOND)*1000) / CLOCK_SECOND);
 
+  while(1){
 
-  while(!finish_sending){
     // radio on
     NETSTACK_RADIO.on();
-    if (!receiver_acked) {
-        rtimer_set(t, RTIMER_TIME(t) + WAKE_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
-        PT_YIELD(&pt);
-        NETSTACK_RADIO.off();
-        continue;
-      }
+
     // send NUM_SEND number of neighbour discovery beacon packets
-    
     for(i = 0; i < NUM_SEND; i++){
+
+      
+     
        // Initialize the nullnet module with information of packet to be trasnmitted
       nullnet_buf = (uint8_t *)&data_packet; //data transmitted
       nullnet_len = sizeof(data_packet); //length of data transmitted
@@ -183,11 +117,11 @@ char sender_scheduler(struct rtimer *t, void *ptr) {
       curr_timestamp = clock_time();
       
       data_packet.timestamp = curr_timestamp;
-      data_packet.light = light_readings[data_packet.seq - 1];
-      printf("Send seq# %lu  with %d lux @ %8lu ticks   %3lu.%03lu\n", data_packet.seq, data_packet.light, curr_timestamp, curr_timestamp / CLOCK_SECOND, ((curr_timestamp % CLOCK_SECOND)*1000) / CLOCK_SECOND);
+
+      printf("Send seq# %lu  @ %8lu ticks   %3lu.%03lu\n", data_packet.seq, curr_timestamp, curr_timestamp / CLOCK_SECOND, ((curr_timestamp % CLOCK_SECOND)*1000) / CLOCK_SECOND);
 
       NETSTACK_NETWORK.output(&dest_addr); //Packet transmission
-      num_sent ++;
+      
 
       // wait for WAKE_TIME before sending the next packet
       if(i != (NUM_SEND - 1)){
@@ -197,11 +131,6 @@ char sender_scheduler(struct rtimer *t, void *ptr) {
       
       }
    
-    }
-
-    if (num_sent == 60) {
-      finish_sending = true;
-      printf("FINISHED SENDING ALL PACKETS\r\n");
     }
 
     // sleep for a random number of slots
@@ -231,6 +160,9 @@ char sender_scheduler(struct rtimer *t, void *ptr) {
 }
 
 // CHANGES START
+int light_readings[60];
+int num_read = 0;
+int num_sent = 0;
 
 static void
 init_opt_reading(void)
@@ -248,16 +180,8 @@ get_light_reading()
     printf("OPT: Light=%d.%02d lux\n", value / 100, value % 100);
     if (num_read < 60) {
       light_readings[num_read] = value;
-      printf("LIGHT READING %d: %d\n", num_read + 1, value);
-      if (num_read == 59) {
-        printf("FINISHED DETECTING 60 LIGHT SENSOR READINGS\n\r\n\r");
-      }
       num_read++;
-      if (num_read == 60) {
-        start_neighbour_discovery = true;
-      }
     }
-    
   } else {
     printf("OPT: Light Sensor's Warming Up\n\n");
   }
@@ -272,15 +196,9 @@ static struct ctimer timer;
 static void
 callback(void *ptr)
 {
-  // ctimer_reset(&timer);
-  if (!start_neighbour_discovery) {
-    ctimer_reset(&timer);
-    get_light_reading();
-  } else {
-    ctimer_stop(&timer);
-  }
-  
-  // printf("ctimer callback called\r\n");
+  ctimer_reset(&timer);
+  get_light_reading();
+  printf("ctimer callback called\r\n");
 }
 
 // CHANGES END
@@ -293,10 +211,6 @@ PROCESS_THREAD(task2_A, ev, data)
 
   PROCESS_BEGIN();
 
-    // CHANGES START
-  
-  // CHANGES END
-
     // initialize data packet sent for neighbour discovery exchange
   data_packet.src_id = node_id; //Initialize the node ID
   data_packet.seq = 0; //Initialize the sequence number of the packet
@@ -304,16 +218,18 @@ PROCESS_THREAD(task2_A, ev, data)
   nullnet_set_input_callback(receive_packet_callback); //initialize receiver callback
   linkaddr_copy(&dest_addr, &linkaddr_null);
 
-  // printf("CC2650 neighbour discovery\n");
-  // printf("Node %d will be sending packet of size %d Bytes\n", node_id, (int)sizeof(data_packet_struct));
+
+
+  printf("CC2650 neighbour discovery\n");
+  printf("Node %d will be sending packet of size %d Bytes\n", node_id, (int)sizeof(data_packet_struct));
 
   // Start sender in one millisecond.
   rtimer_set(&rt, RTIMER_NOW() + (RTIMER_SECOND / 1000), 1, (rtimer_callback_t)sender_scheduler, NULL);
 
+  // CHANGES START
   init_opt_reading();
   ctimer_set(&timer, CLOCK_SECOND, callback, NULL);
-
-
+  // CHANGES END
   
 
   PROCESS_END();
