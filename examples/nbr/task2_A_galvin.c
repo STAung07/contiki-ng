@@ -20,6 +20,8 @@
 linkaddr_t dest_addr;
 
 /*---------------------------------------------------------------------------*/
+#define MAX_PAYLOAD_LENGTH 10
+
 typedef struct
 {
   unsigned long src_id;
@@ -39,12 +41,13 @@ typedef struct
   unsigned long dest_id;
   unsigned long seq;
   int payload_length;
-  int payload[60]; // Put light readings in payload field
+  int payload[MAX_PAYLOAD_LENGTH]; // Put light readings in payload field
 } data_packet_struct;
 /*---------------------------------------------------------------------------*/
 
 // Structure holding the data to be transmitted
 static neighbour_discovery_packet_struct neighbour_discovery_packet;
+static data_packet_struct data_packet;
 
 // sender timer implemented using rtimer
 static struct rtimer rt;
@@ -141,43 +144,72 @@ char sender_scheduler(struct rtimer *t, void *ptr)
 
   while (1)
   {
-    curr_timestamp = clock_seconds();
-    printf("[%ld] Radio on\r\n", curr_timestamp);
-
-    NETSTACK_RADIO.on();
-
-    curr_timestamp = clock_seconds();
-    printf("[%ld] Sending neighbour discoverry packet - seq: %lu\r\n", curr_timestamp, neighbour_discovery_packet.seq);
-
-    // Initialize the nullnet module with information of packet to be transmitted
-    nullnet_buf = (uint8_t *)&neighbour_discovery_packet; // data transmitted
-    nullnet_len = sizeof(neighbour_discovery_packet);     // length of data transmitted
-
-    neighbour_discovery_packet.seq++;
-
-    NETSTACK_NETWORK.output(&dest_addr); // Packet transmission
-
-    rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
-    PT_YIELD(&pt);
-
-    if (neighbour_discovered)
-    {
+    if (num_sent >= num_read) {
+      // If got not light readings to send, sleep for 1 slot time
+      rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
+      PT_YIELD(&pt);
+    } else {
       curr_timestamp = clock_seconds();
-      printf("[%ld] Detected Node ID: %ld\r\n", curr_timestamp, neighbour_id);
-
-      while (!link_quality_good);
+      printf("[%ld] Radio on\r\n", curr_timestamp);
+      NETSTACK_RADIO.on();
 
       curr_timestamp = clock_seconds();
-      printf("[%ld] Transfer Node ID: %ld\r\n", curr_timestamp, neighbour_id);
-      while (1);      
+      printf("[%ld] Sending neighbour discovery packet - seq: %lu\r\n", curr_timestamp, neighbour_discovery_packet.seq);
+
+      // Initialize the nullnet module with information of packet to be transmitted
+      nullnet_buf = (uint8_t *)&neighbour_discovery_packet; // data transmitted
+      nullnet_len = sizeof(neighbour_discovery_packet);     // length of data transmitted
+
+      NETSTACK_NETWORK.output(&dest_addr); // Packet transmission
+
+      neighbour_discovery_packet.seq++;
+
+      rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
+      PT_YIELD(&pt);
+
+      if (neighbour_discovered)
+      {
+        curr_timestamp = clock_seconds();
+        printf("[%ld] Detected Node ID: %ld\r\n", curr_timestamp, neighbour_id);
+
+        while (!link_quality_good);
+
+        curr_timestamp = clock_seconds();
+        printf("[%ld] Transfer Node ID: %ld\r\n", curr_timestamp, neighbour_id);
+
+        data_packet.dest_id = neighbour_id;
+        
+        int curr_num_read = num_read;
+
+        if (curr_num_read - num_sent < MAX_PAYLOAD_LENGTH) {
+          data_packet.payload_length = curr_num_read - num_sent;
+        } else {
+          data_packet.payload_length = MAX_PAYLOAD_LENGTH;
+        }
+        
+        for (int i = 0; i < data_packet.payload_length; i++) {
+          data_packet.payload[0] = light_readings[num_sent + i];
+        }
+        curr_timestamp = clock_seconds();
+        printf("[%ld] Sending data packet - src id: %ld dest id: %ld seq: %ld payload len: %d\r\n", curr_timestamp, data_packet.src_id, data_packet.dest_id, data_packet.seq, data_packet.payload_length);
+
+        // Initialize the nullnet module with information of packet to be transmitted
+        nullnet_buf = (uint8_t *)&data_packet; // data transmitted
+        nullnet_len = sizeof(data_packet_struct);     // length of data transmitted
+
+        NETSTACK_NETWORK.output(&dest_addr); // Packet transmission
+
+        data_packet.seq++;
+        num_sent += data_packet.payload_length;
+      }
+
+      curr_timestamp = clock_seconds();
+      printf("[%ld] Radio off\r\n", curr_timestamp);
+      NETSTACK_RADIO.off();
+
+      rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME * (NUM_PRIME - 1), 1, (rtimer_callback_t)sender_scheduler, ptr);
+      PT_YIELD(&pt);
     }
-
-    curr_timestamp = clock_seconds();
-    printf("[%ld] Radio off\r\n", curr_timestamp);
-    NETSTACK_RADIO.off();
-
-    rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME * (NUM_PRIME - 1), 1, (rtimer_callback_t)sender_scheduler, ptr);
-    PT_YIELD(&pt);
   }
 
   PT_END(&pt);
@@ -192,6 +224,8 @@ PROCESS_THREAD(task2_A_galvin, ev, data)
   neighbour_discovery_packet.src_id = node_id; // Initialize the node ID
   neighbour_discovery_packet.seq = 0;          // Initialize the sequence number of the packet
 
+  data_packet.src_id = node_id;
+  data_packet.seq = 0;
   nullnet_set_input_callback(receive_packet_callback); // initialize receiver callback
   linkaddr_copy(&dest_addr, &linkaddr_null);
 

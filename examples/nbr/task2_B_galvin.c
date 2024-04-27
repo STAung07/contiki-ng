@@ -20,26 +20,28 @@
 linkaddr_t dest_addr;
 
 /*---------------------------------------------------------------------------*/
+#define MAX_PAYLOAD_LENGTH 10
+
 typedef struct
 {
-    unsigned long src_id;
-    unsigned long seq;
+  unsigned long src_id;
+  unsigned long seq;
 } neighbour_discovery_packet_struct;
 
 typedef struct
 {
-    unsigned long src_id;
-    unsigned long dest_id;
-    unsigned long seq;
+  unsigned long src_id;
+  unsigned long dest_id;
+  unsigned long seq;
 } acknowledgment_packet_struct;
 
 typedef struct
 {
-    unsigned long src_id;
-    unsigned long dest_id;
-    unsigned long seq;
-    int payload_length;
-    int payload[60]; // Put light readings in payload field
+  unsigned long src_id;
+  unsigned long dest_id;
+  unsigned long seq;
+  int payload_length;
+  int payload[MAX_PAYLOAD_LENGTH]; // Put light readings in payload field
 } data_packet_struct;
 /*---------------------------------------------------------------------------*/
 
@@ -60,13 +62,7 @@ unsigned long curr_timestamp;
 #define NUM_PRIME 3
 volatile int neighbour_discovered = 0;
 volatile unsigned long neighbour_id;
-
-// State machine after neighbour discovered
-#define BEFORE_RECIEVING_DATA 0
-#define RECIEVING_DATA 1
-#define NO_MORE_DATA 2
-int state;
-int num_recv;
+volatile int received_data_packet;
 
 // Starts the main contiki neighbour discovery process
 PROCESS(task2_B_galvin, "task2_B_galvin");
@@ -92,22 +88,18 @@ void receive_packet_callback(const void *data, uint16_t len, const linkaddr_t *s
         neighbour_id = received_packet.src_id;
     }
 
-    // if (len == sizeof(data_packet_struct))
-    // {
-    //     static data_packet_struct received_packet;
+    if (len == sizeof(data_packet_struct))
+    {
+        static data_packet_struct received_packet;
 
-    //     // Copy the content of packet into the data structure
-    //     memcpy(&received_packet, data, len);
+        // Copy the content of packet into the data structure
+        memcpy(&received_packet, data, len);
 
-    //     // Print the details of the received packet
-    //     printf("Recv data packet - src id: %ld dest id: %ld seq: %ld payload len: %d rssi: %d\r\n",
-    //            received_packet.src_id, received_packet.dest_id, received_packet.seq, received_packet.payload_length, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI));
-
-    //     if (received_packet.payload_length < 0)
-    //     {
-    //         neighbour_discovered = 0;
-    //     }
-    // }
+        // Print the details of the received packet
+        printf("Recv data packet - src id: %ld dest id: %ld seq: %ld payload len: %d rssi: %d\r\n",
+               received_packet.src_id, received_packet.dest_id, received_packet.seq, received_packet.payload_length, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI));
+        received_data_packet = 1;
+    }
 }
 
 // Scheduler function for the sender of neighbour discovery packets
@@ -133,11 +125,10 @@ char sender_scheduler(struct rtimer *t, void *ptr)
         {
             curr_timestamp = clock_seconds();
             printf("[%ld] Detected Node ID: %ld\r\n", curr_timestamp, neighbour_id);
-            while (1)
+            while (!received_data_packet)
             {
                 acknowledgment_packet.dest_id = neighbour_id;
-                acknowledgment_packet.seq = num_recv;
-
+                acknowledgment_packet.seq = 0;
 
                 // Initialize the nullnet module with information of packet to be transmitted
                 nullnet_buf = (uint8_t *)&acknowledgment_packet; // data transmitted
@@ -147,14 +138,16 @@ char sender_scheduler(struct rtimer *t, void *ptr)
                 printf("[%ld] Sending acknowledgement\r\n", curr_timestamp);
 
                 NETSTACK_NETWORK.output(&dest_addr); // Packet transmission
+
+                acknowledgment_packet.seq++;
                 rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
                 PT_YIELD(&pt);
             }
+            received_data_packet = 0;
         }
 
         curr_timestamp = clock_seconds();
         printf("[%ld] Radio off\r\n", curr_timestamp);
-        // radio off
         NETSTACK_RADIO.off();
 
         rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME * (NUM_PRIME - 1), 1, (rtimer_callback_t)sender_scheduler, ptr);
