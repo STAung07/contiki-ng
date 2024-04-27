@@ -1,4 +1,4 @@
-CONTIKI_PROJECT = task2_A task2_B
+CONTIKI_PROJECT = task1 task2_A_galvin task2_B_galvin
 all: $(CONTIKI_PROJECT)
 
 CONTIKI = ../..
