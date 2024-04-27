@@ -58,7 +58,7 @@ static struct pt pt;
 unsigned long curr_timestamp;
 
 // Neighbour discovery
-#define SLOT_TIME RTIMER_SECOND
+#define SLOT_TIME RTIMER_SECOND / 2
 #define NUM_PRIME 3
 volatile int neighbour_discovered = 0;
 volatile unsigned long neighbour_id;
@@ -81,8 +81,8 @@ void receive_packet_callback(const void *data, uint16_t len, const linkaddr_t *s
         memcpy(&received_packet, data, len);
 
         // Print the details of the received packet
-        printf("Recv neighbour discovery packet - src id: %ld seq: %ld rssi: %d\r\n",
-               received_packet.src_id, received_packet.seq, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI));
+        // printf("Recv neighbour discovery packet - src id: %ld seq: %ld rssi: %d\r\n",
+        //        received_packet.src_id, received_packet.seq, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI));
 
         neighbour_discovered = 1;
         neighbour_id = received_packet.src_id;
@@ -96,8 +96,11 @@ void receive_packet_callback(const void *data, uint16_t len, const linkaddr_t *s
         memcpy(&received_packet, data, len);
 
         // Print the details of the received packet
-        printf("Recv data packet - src id: %ld dest id: %ld seq: %ld payload len: %d rssi: %d\r\n",
-               received_packet.src_id, received_packet.dest_id, received_packet.seq, received_packet.payload_length, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI));
+        printf("Light: ");
+        for (int i = 0; i < received_packet.payload_length - 1; i++) {
+            printf("%d.%02d lux ,", received_packet.payload[i] / 100, received_packet.payload[i] % 100);
+        }
+        printf("%d.%02d lux\r\n", received_packet.payload[received_packet.payload_length - 1] / 100, received_packet.payload[received_packet.payload_length - 1] % 100);
         received_data_packet = 1;
     }
 }
@@ -115,16 +118,16 @@ char sender_scheduler(struct rtimer *t, void *ptr)
         // radio on
         NETSTACK_RADIO.on();
 
-        curr_timestamp = clock_seconds();
-        printf("[%ld] Radio on\r\n", curr_timestamp);
+        // curr_timestamp = clock_seconds();
+        // printf("[%ld] Radio on\r\n", curr_timestamp);
 
         rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
         PT_YIELD(&pt);
 
         if (neighbour_discovered)
         {
-            curr_timestamp = clock_seconds();
-            printf("[%ld] Detected Node ID: %ld\r\n", curr_timestamp, neighbour_id);
+            // curr_timestamp = clock_seconds();
+            // printf("[%ld] Detected Node ID: %ld\r\n", curr_timestamp, neighbour_id);
             while (!received_data_packet)
             {
                 acknowledgment_packet.dest_id = neighbour_id;
@@ -134,8 +137,8 @@ char sender_scheduler(struct rtimer *t, void *ptr)
                 nullnet_buf = (uint8_t *)&acknowledgment_packet; // data transmitted
                 nullnet_len = sizeof(acknowledgment_packet);     // length of data transmitted
 
-                curr_timestamp = clock_seconds();
-                printf("[%ld] Sending acknowledgement\r\n", curr_timestamp);
+                // curr_timestamp = clock_seconds();
+                // printf("[%ld] Sending acknowledgement\r\n", curr_timestamp);
 
                 NETSTACK_NETWORK.output(&dest_addr); // Packet transmission
 
@@ -144,10 +147,11 @@ char sender_scheduler(struct rtimer *t, void *ptr)
                 PT_YIELD(&pt);
             }
             received_data_packet = 0;
+            neighbour_discovered = 0;
         }
 
-        curr_timestamp = clock_seconds();
-        printf("[%ld] Radio off\r\n", curr_timestamp);
+        // curr_timestamp = clock_seconds();
+        // printf("[%ld] Radio off\r\n", curr_timestamp);
         NETSTACK_RADIO.off();
 
         rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME * (NUM_PRIME - 1), 1, (rtimer_callback_t)sender_scheduler, ptr);

@@ -67,7 +67,7 @@ volatile int num_read = 0;
 volatile int num_sent = 0;
 
 // Neighbour discovery
-#define SLOT_TIME RTIMER_SECOND
+#define SLOT_TIME RTIMER_SECOND / 2
 #define NUM_PRIME 5
 volatile int neighbour_discovered = 0;
 volatile unsigned long neighbour_id;
@@ -123,8 +123,8 @@ void receive_packet_callback(const void *data, uint16_t len, const linkaddr_t *s
     memcpy(&received_packet, data, len);
 
     // Print the details of the received packet
-    printf("Recv acknowledgement packet - src id: %ld dest id: %ld seq: %ld rssi: %d\r\n",
-           received_packet.src_id, received_packet.dest_id, received_packet.seq, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI));
+    // printf("Recv acknowledgement packet - src id: %ld dest id: %ld seq: %ld rssi: %d\r\n",
+    //        received_packet.src_id, received_packet.dest_id, received_packet.seq, (signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI));
 
     neighbour_discovered = 1;
     neighbour_id = received_packet.src_id;
@@ -149,12 +149,12 @@ char sender_scheduler(struct rtimer *t, void *ptr)
       rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
       PT_YIELD(&pt);
     } else {
-      curr_timestamp = clock_seconds();
-      printf("[%ld] Radio on\r\n", curr_timestamp);
+      // curr_timestamp = clock_seconds();
+      // printf("[%ld] Radio on\r\n", curr_timestamp);
       NETSTACK_RADIO.on();
 
-      curr_timestamp = clock_seconds();
-      printf("[%ld] Sending neighbour discovery packet - seq: %lu\r\n", curr_timestamp, neighbour_discovery_packet.seq);
+      // curr_timestamp = clock_seconds();
+      // printf("[%ld] Sending neighbour discovery packet - seq: %lu\r\n", curr_timestamp, neighbour_discovery_packet.seq);
 
       // Initialize the nullnet module with information of packet to be transmitted
       nullnet_buf = (uint8_t *)&neighbour_discovery_packet; // data transmitted
@@ -188,10 +188,10 @@ char sender_scheduler(struct rtimer *t, void *ptr)
         }
         
         for (int i = 0; i < data_packet.payload_length; i++) {
-          data_packet.payload[0] = light_readings[num_sent + i];
+          data_packet.payload[i] = light_readings[num_sent + i];
         }
-        curr_timestamp = clock_seconds();
-        printf("[%ld] Sending data packet - src id: %ld dest id: %ld seq: %ld payload len: %d\r\n", curr_timestamp, data_packet.src_id, data_packet.dest_id, data_packet.seq, data_packet.payload_length);
+        // curr_timestamp = clock_seconds();
+        // printf("[%ld] Sending data packet - src id: %ld dest id: %ld seq: %ld payload len: %d\r\n", curr_timestamp, data_packet.src_id, data_packet.dest_id, data_packet.seq, data_packet.payload_length);
 
         // Initialize the nullnet module with information of packet to be transmitted
         nullnet_buf = (uint8_t *)&data_packet; // data transmitted
@@ -201,10 +201,11 @@ char sender_scheduler(struct rtimer *t, void *ptr)
 
         data_packet.seq++;
         num_sent += data_packet.payload_length;
+        neighbour_discovered = 0;
       }
 
-      curr_timestamp = clock_seconds();
-      printf("[%ld] Radio off\r\n", curr_timestamp);
+      // curr_timestamp = clock_seconds();
+      // printf("[%ld] Radio off\r\n", curr_timestamp);
       NETSTACK_RADIO.off();
 
       rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME * (NUM_PRIME - 1), 1, (rtimer_callback_t)sender_scheduler, ptr);
