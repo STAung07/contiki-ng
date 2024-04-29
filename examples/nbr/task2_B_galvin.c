@@ -126,8 +126,8 @@ char sender_scheduler(struct rtimer *t, void *ptr)
 
         if (neighbour_discovered)
         {
-            // curr_timestamp = clock_seconds();
-            // printf("[%ld] Detected Node ID: %ld\r\n", curr_timestamp, neighbour_id);
+            curr_timestamp = clock_seconds();
+            printf("[%ld] Detected Node ID: %ld\r\n", curr_timestamp, neighbour_id);
             while (!received_data_packet)
             {
                 acknowledgment_packet.dest_id = neighbour_id;
@@ -137,8 +137,8 @@ char sender_scheduler(struct rtimer *t, void *ptr)
                 nullnet_buf = (uint8_t *)&acknowledgment_packet; // data transmitted
                 nullnet_len = sizeof(acknowledgment_packet);     // length of data transmitted
 
-                // curr_timestamp = clock_seconds();
-                // printf("[%ld] Sending acknowledgement\r\n", curr_timestamp);
+                curr_timestamp = clock_seconds();
+                printf("[%ld] Sending acknowledgement\r\n", curr_timestamp);
 
                 NETSTACK_NETWORK.output(&dest_addr); // Packet transmission
 

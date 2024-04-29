@@ -54,6 +54,7 @@ static struct rtimer rt;
 
 // ctimer for light reading
 static struct ctimer timer;
+static int ctimer_ticks = 0;
 
 // Protothread variable
 static struct pt pt;
@@ -65,6 +66,10 @@ unsigned long curr_timestamp;
 int light_readings[60];
 volatile int num_read = 0;
 volatile int num_sent = 0;
+
+// Motion detection
+volatile int motion_detected = 0;
+#define MOTION_DETECTION_THRESHHOLD 7000
 
 // Neighbour discovery
 #define SLOT_TIME RTIMER_SECOND / 2
@@ -78,6 +83,37 @@ volatile int link_quality_good = 0;
 PROCESS(task2_A_galvin, "task2_A_galvin");
 AUTOSTART_PROCESSES(&task2_A_galvin);
 
+static void init_mpu_reading(void)
+{
+  mpu_9250_sensor.configure(SENSORS_ACTIVE, MPU_9250_SENSOR_TYPE_ALL);
+}
+
+static int detect_motion()
+{
+  int value;
+  int total = 0;
+  value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_GYRO_X);
+  if (value < 0) {
+    value = - value;
+  }
+  total += value;
+  value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_GYRO_Y);
+  if (value < 0) {
+    value = - value;
+  }
+  total += value;
+  value = mpu_9250_sensor.value(MPU_9250_SENSOR_TYPE_GYRO_Z);
+  if (value < 0) {
+    value = - value;
+  }
+  total += value;
+  if (total > MOTION_DETECTION_THRESHHOLD) {
+    return 1;
+  } else {
+    return 0;
+  }  
+}
+
 static void init_opt_reading(void)
 {
   SENSORS_ACTIVATE(opt_3001_sensor);
@@ -88,12 +124,15 @@ static void get_light_reading()
   int value;
 
   value = opt_3001_sensor.value(0);
-  if(value != CC26XX_SENSOR_READING_ERROR) {
+  if (value != CC26XX_SENSOR_READING_ERROR)
+  {
     curr_timestamp = clock_seconds();
     printf("[%ld] Light Reading: %d.%02d lux\r\n", curr_timestamp, value / 100, value % 100);
     light_readings[num_read] = value;
     num_read++;
-  } else {
+  }
+  else
+  {
     curr_timestamp = clock_seconds();
     printf("[%ld] Light Reading: ERROR\r\n", curr_timestamp);
   }
@@ -103,12 +142,25 @@ static void get_light_reading()
 
 static void ctimer_callback(void *ptr)
 {
-  if (num_read < 60) {
-    ctimer_reset(&timer);
-    get_light_reading();
-  } else {
-    ctimer_stop(&timer);
+  if (detect_motion())
+  {
+    motion_detected = 1;
   }
+
+  if (motion_detected && ctimer_ticks % 4 == 0 && num_read < 60)
+  {
+    get_light_reading();
+  }
+
+  if (num_read == 60 && num_sent == 60)
+  {
+    motion_detected = 0;
+    num_read = 0;
+    num_sent = 0;
+  }
+
+  ctimer_ticks++;
+  ctimer_reset(&timer);
 }
 
 // Function called after reception of a packet
@@ -128,7 +180,8 @@ void receive_packet_callback(const void *data, uint16_t len, const linkaddr_t *s
 
     neighbour_discovered = 1;
     neighbour_id = received_packet.src_id;
-    if ((signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI) > RSSI_THRESHOLD) {
+    if ((signed short)packetbuf_attr(PACKETBUF_ATTR_RSSI) > RSSI_THRESHOLD)
+    {
       link_quality_good = 1;
     }
   }
@@ -144,11 +197,14 @@ char sender_scheduler(struct rtimer *t, void *ptr)
 
   while (1)
   {
-    if (num_sent >= num_read) {
+    if (num_sent >= num_read)
+    {
       // If got not light readings to send, sleep for 1 slot time
       rtimer_set(t, RTIMER_TIME(t) + SLOT_TIME, 1, (rtimer_callback_t)sender_scheduler, ptr);
       PT_YIELD(&pt);
-    } else {
+    }
+    else
+    {
       // curr_timestamp = clock_seconds();
       // printf("[%ld] Radio on\r\n", curr_timestamp);
       NETSTACK_RADIO.on();
@@ -172,30 +228,35 @@ char sender_scheduler(struct rtimer *t, void *ptr)
         curr_timestamp = clock_seconds();
         printf("[%ld] Detected Node ID: %ld\r\n", curr_timestamp, neighbour_id);
 
-        while (!link_quality_good);
+        while (!link_quality_good)
+          ;
 
         curr_timestamp = clock_seconds();
         printf("[%ld] Transfer Node ID: %ld\r\n", curr_timestamp, neighbour_id);
 
         data_packet.dest_id = neighbour_id;
-        
+
         int curr_num_read = num_read;
 
-        if (curr_num_read - num_sent < MAX_PAYLOAD_LENGTH) {
+        if (curr_num_read - num_sent < MAX_PAYLOAD_LENGTH)
+        {
           data_packet.payload_length = curr_num_read - num_sent;
-        } else {
+        }
+        else
+        {
           data_packet.payload_length = MAX_PAYLOAD_LENGTH;
         }
-        
-        for (int i = 0; i < data_packet.payload_length; i++) {
+
+        for (int i = 0; i < data_packet.payload_length; i++)
+        {
           data_packet.payload[i] = light_readings[num_sent + i];
         }
         // curr_timestamp = clock_seconds();
         // printf("[%ld] Sending data packet - src id: %ld dest id: %ld seq: %ld payload len: %d\r\n", curr_timestamp, data_packet.src_id, data_packet.dest_id, data_packet.seq, data_packet.payload_length);
 
         // Initialize the nullnet module with information of packet to be transmitted
-        nullnet_buf = (uint8_t *)&data_packet; // data transmitted
-        nullnet_len = sizeof(data_packet_struct);     // length of data transmitted
+        nullnet_buf = (uint8_t *)&data_packet;    // data transmitted
+        nullnet_len = sizeof(data_packet_struct); // length of data transmitted
 
         NETSTACK_NETWORK.output(&dest_addr); // Packet transmission
 
@@ -236,9 +297,11 @@ PROCESS_THREAD(task2_A_galvin, ev, data)
   // Start sender in one millisecond.
   rtimer_set(&rt, RTIMER_NOW() + (RTIMER_SECOND / 1000), 1, (rtimer_callback_t)sender_scheduler, NULL);
 
-  // Start timer for light reading in 1 second
   init_opt_reading();
-  ctimer_set(&timer, CLOCK_SECOND, ctimer_callback, NULL);
+  
+  init_mpu_reading();
+
+  ctimer_set(&timer, CLOCK_SECOND / 4, ctimer_callback, NULL);
 
   PROCESS_END();
 }
